@@ -1,0 +1,343 @@
+---
+title: 'Data624: Homework 2'
+author: 'jfor: Josh Forster'
+date: "2024-02-04"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Do exercises 3.1, 3.2, 3.3, 3.4, 3.5, 3.7, 3.8 and 3.9 from the online Hyndman book.  Please include your Rpubs link along with.pdf file of your run code
+
+#### Load Libraries
+
+```{r}
+library(fpp3)
+library(tidyverse)
+library(tsibble)
+library(MASS)
+#library(seasonal)
+```
+
+
+3.1: Consider the GDP information in global_economy. Plot the GDP per capita for each country over time. Which country has the highest GDP per capita? How has this changed over time?
+
+```{r}
+global_economy |>  mutate(gdp_percap=GDP/Population) |>
+autoplot(gdp_percap) + geom_text(data=global_economy |> filter(Year=='2016')  |> mutate(gdp_percap=GDP/Population) |> arrange(-gdp_percap) |> slice(c(1:3)), aes(label=Country),size=3,hjust=1,vjust=-1.5) +
+    labs(title='Historical Global Countries GDP Per Capita',y='GDP per Capita') +
+    theme(legend.position = "none")
+```
+
+Very small nations have had the highest GDP/Capita since the 1970s and these countries are typically special tax havens that try to encourage businesses/individuals to locate or bank there while creating favorable rules to bring said investment. Monaco and Liechenstein are both essentially city states that have very limited populations with considerable GDPs. Luxembourg has also moved up the rankings to become a distant third highest per capita which might stem from a change in their business laws around the 2000s from reviewing the basic time plot generated with autoplot.
+
+
+3.2: For each of the following series, make a graph of the data. If transforming seems appropriate, do so and describe the effect.
+
+United States GDP from global_economy.
+
+```{r us_gdp}
+global_economy |> filter(Country=='United States') |> autoplot(GDP) + labs(title='US GDP Over Time',y='US ($)')
+    #autolayer(global_economyPopulation,colour='red')
+#global_economy |> filter(Country=='United States') |> autoplot(Population) + labs(title='US GDP Over Time',y='US ($)')
+
+```
+
+The trend over time is for mostly steady increases; however, the population is changing in potentially different ways which may mean that productivity given their are more people.
+
+```{r us_gdp_cap}
+global_economy |> filter(Country=='United States') |> autoplot(GDP/Population) + labs(title='GDP Per Capita',y='US ($)')
+```
+
+The logical transformation in this case is to adjust the GDP by population to determine the long term trend applied to the population.
+
+
+Slaughter of Victorian “Bulls, bullocks and steers” in aus_livestock.
+
+```{r aus_auto}
+aus_livestock |> filter(Animal=='Bulls, bullocks and steers') |> autoplot(Count)
+```
+
+Given the varied patterns that exist across the different locations of bulls, bullocks, and steers it does not seem as though one transformation will apply to each category.
+
+```{r opt_func}
+
+opt_bc <- function(input_df,col_name) {
+    tmp_col <- input_df[[col_name]]
+    tmp_df <- as_tibble(input_df)
+    bc <- MASS::boxcox(lm(tmp_col ~ 1),plotit=FALSE)
+    return(bc$x[which.max(bc$y)])
+}
+```
+
+
+```{r grp_bull}
+grp_aus <- aus_livestock |> filter(Animal=='Bulls, bullocks and steers') |> group_by(Animal) |> summarise(total=sum(Count))
+bc <- MASS::boxcox(lm(total ~ 1,data=grp_aus),plotit=FALSE)
+max_lambda <- bc$x[which.max(bc$y)]
+autoplot(grp_aus,box_cox(total,max_lambda))
+```
+
+Even when applying Box-Cox to the total number of livestock in that specific group it does not seem to properly transform the data in a way that benefits it.
+
+
+Victorian Electricity Demand from vic_elec.
+
+```{r elec_plot}
+vic_elec |> autoplot(Demand)
+```
+
+The total aggregate demand can be influence by a number of things, but perhaps using temperature to transform the data may help create a useful metric in terms of analyzing unusual activity.
+
+```{r elec_plot_trans}
+vic_elec |> autoplot(Demand/Temperature)
+```
+
+There is typically seasonal changes when the weather is very hot or cold that would generally drive demand. It is easier to identify potential unusual demand by creating a more standardized metric that is adjusted by temperature. This shows two higher spikes that are different than reviewing the aggregate demand that occurred.
+
+Gas production from aus_production.
+
+```{r}
+aus_production |> autoplot(Gas)
+```
+
+One aspect of time series analysis that drives complexity is when a seasonal value is not consistent across time. By transforming this data point it can be easier to conduct future decomposition that will lead to more accurate forecasts.
+
+```{r aus_gas_trans}
+bc <- MASS::boxcox(lm(Gas ~ 1,data=aus_production),plotit=FALSE)
+gas_lambda <- bc$x[which.max(bc$y)]
+
+aus_production |> autoplot(box_cox(Gas,gas_lambda)) +labs(title='Austrialian Gas Demand',y='Transformed Gas Demand')
+```
+
+The transformed version of this time series appears to decently standardize the duration of seasonality which is optimal for time series analysis.
+
+3.3: Why is a Box-Cox transformation unhelpful for the canadian_gas data?
+
+```{r can_gas_bc}
+
+bc <- MASS::boxcox(lm(Volume ~ 1,data=canadian_gas),plotit=FALSE)
+can_gas <- bc$x[which.max(bc$y)]
+
+can_gas
+```
+
+```{r can_gas_plot}
+canadian_gas |> autoplot(box_cox(Volume,can_gas))
+```
+
+From testing different power transformations and identifying the minimized log likelihood value via Box Cox it does not appear that any level of change is minimizing the differences in seasons across the data set and therefore does not add much value.
+
+
+3.4: What Box-Cox transformation would you select for your retail data (from Exercise 7 in Section 2.10)?
+
+```{r turn_bc}
+turn_bc <- MASS::boxcox(lm(Turnover ~ 1,data=aus_retail |> filter(`Series ID` == sample(aus_retail$`Series ID`,1))))
+max_turn_bc <- turn_bc$x[which.max(turn_bc$y)]
+max_turn_bc
+
+```
+
+```{r turn_plot}
+aus_retail |> filter(`Series ID` == sample(aus_retail$`Series ID`,1)) |> autoplot(box_cox(Turnover,max_turn_bc)) + labs(title='Transformed Turnover (0.15 - 0.2)',y='Transformed Turnover')
+```
+
+The optimal transformed value for this retail time series appears to be between 0.15 and 0.2.
+
+3.5: For the following series, find an appropriate Box-Cox transformation in order to stabilise the variance.
+
+Tobacco from `aus_production`, Economy class passengers between Melbourne and Sydney from `ansett`, and Pedestrian counts at Southern Cross Station from `pedestrian`.
+
+```{r tobacco_review}
+aus_production |> autoplot(Tobacco)
+```
+
+```{r tobacco_bc}
+toba_bc <- MASS::boxcox(lm(Tobacco ~ 1,data=aus_production))
+max_toba_bc <- toba_bc$x[which.max(toba_bc$y)]
+max_toba_bc
+```
+
+```{r tobacco_trans}
+
+
+toba_trans <- aus_production |> autoplot(box_cox(Tobacco,max_toba_bc)) + labs(title='Transformed Tobacco Production'
+,y='Transformed Number of Tons')
+
+toba_orig <- aus_production |> autoplot(Tobacco) + labs(title='Production of Tobacco',y='Tons')
+cowplot::plot_grid(toba_trans, toba_orig)
+```
+
+It's not apparent that any transformation really stabilizes the variance as the power transform is an unusual value between 1.3 - 1.4.
+
+```{r ansett_review}
+ansett |> filter(Airports=='MEL-SYD' & Class=='Economy') |> autoplot()
+```
+
+```{r ansett_bc}
+mod_ansett = ansett |>filter(Airports=='MEL-SYD' & Class=='Economy') |> mutate(Passengers=ifelse(Passengers==0,0.01,Passengers))
+pass_bc <- MASS::boxcox(lm(Passengers~ 1,data=mod_ansett))
+max_pass_bc <- pass_bc$x[which.max(pass_bc$y)]
+max_pass_bc
+```
+
+```{r ansett_hist_compare}
+hist_ansett_orig <- ggplot(ansett,aes(x=Passengers)) + geom_histogram() +labs(title='MEL to SYD Economy Passengers')
+
+trans_ansett_orig <- ggplot(mod_ansett,aes(x=Passengers^max_pass_bc)) + geom_histogram() +labs(title='MEL to SYD Passengers^1.07')
+
+cowplot::plot_grid(hist_ansett_orig,trans_ansett_orig)
+```
+
+This data set after applying a Box-Cox transformation does appear slightly more gaussian shaped, but the power transformation is a bit unusual given that the shape of the original distribution appears to be exponential or some type of decaying function.
+
+```{r}
+autoplot(mod_ansett,box_cox(Passengers,max_pass_bc))
+```
+
+Despite the improvement in shape the time series graphic does not seem dramatically improved.
+
+```{r ped_autoplot}
+pedestrian |> filter(Sensor=='Southern Cross Station') |> autoplot(Count)
+```
+
+The granularity of time in this series based on the interval makes it a bit harder to analyze visually as shown in the autoplot.
+
+
+```{r ped_bc}
+mod_ped <- pedestrian |> filter(Sensor=='Southern Cross Station') |> mutate(Count=ifelse(Count==0,0.01,Count))
+ped_bc <- MASS::boxcox(lm(Count~ 1,data=mod_ped),plotit=FALSE)
+max_ped_bc <- ped_bc$x[which.max(ped_bc$y)]
+max_ped_bc
+```
+
+```{r ped_hists}
+hist_ped_orig <- ggplot(data=pedestrian |> filter(Sensor=='Southern Cross Station'),aes(x=Count)) + geom_histogram() +labs(title='Southern Cross Pedestrians')
+
+trans_ped <- ggplot(mod_ped,aes(x=Count^max_ped_bc)) + geom_histogram() +labs(title='South Station Pedestrians^0.1')
+
+cowplot::plot_grid(hist_ped_orig,trans_ped)
+```
+
+The bell shaped distribution is certainly improved by the transformation.
+
+```{r}
+autoplot(mod_ped,box_cox(Count,max_ped_bc))
+```
+
+Ultimately, it's hard to visually determine if this was impactful from a basic time series plot.
+
+3.7: Consider the last five years of the Gas data from aus_production.
+
+
+```{r gas_input}
+gas <- tail(aus_production, 5*4) |> select(Gas)
+```
+
+a) Plot the time series. Can you identify seasonal fluctuations and/or a trend-cycle?
+
+```{r aus_autoplot}
+aus_production |> autoplot(Gas)
+```
+
+The upward strong trend over time is apparent from a basic time plot and there are varying cyclic growth rates that are happening during this trajectory. There are also clear seasonal repetitions that are prevalent in this series, but it is not possible to identify the quarter in which this occurs. 
+
+```{r au_gas_season}
+aus_production |> gg_season(Gas)
+```
+
+The `gg_season` plot helps to identify that the data seems to regularly increase in Q3 across the time period.
+
+b) Use classical_decomposition with type=multiplicative to calculate the trend-cycle and seasonal indices.
+
+```{r class_dcmp_aus}
+class_mult <- aus_production |> model(
+    classical_decomposition(Gas, type = "multiplicative")) |>
+components(class_mult)
+autoplot(class_mult) +
+  labs(title = "Classical multiplicative decomposition of total Austrialian Gas consumption")
+```
+
+c) Do the results support the graphical interpretation from part a?
+
+ The trend cycle is going up consistently across the full range and there is some strong similar looking seasonality trends across that time frame. Overall, it is fairly similar takeaways although the specified time series plots provide a little bit more detail in reviewing the seasonality.
+ 
+d) Compute and plot the seasonally adjusted data.
+
+```{r}
+class_mult |> ggplot(aes(x=Quarter)) +
+    geom_line(aes(y=season_adjust)) +
+    labs(title='Australian Seasonally Adjusted Gas Consumption')
+```
+
+e) Change one observation to be an outlier (e.g., add 300 to one observation), and recompute the seasonally adjusted data. What is the effect of the outlier?
+
+```{r}
+aus_mod <- aus_production
+aus_mod[211,'Gas'] <- aus_production[211,'Gas'] + 277
+
+dcomp_aus_mod <- aus_mod |> model(classical_decomposition(Gas,type='multiplicative')) |> components()
+```
+
+```{r}
+dcomp_aus_mod |> ggplot(aes(x=Quarter)) +
+    geom_line(aes(y=season_adjust)) +
+    labs(title='Australian Seasonally Adjusted Gas Consumption: One Outlier')
+```
+
+The outlier causes a large spike in the seasonally adjusted data because it includes an error term as well at the trended data and this addition created greatly impacts the values.
+
+f) Does it make any difference if the outlier is near the end rather than in the middle of the time series?
+
+It shouldn't make that much of a difference as the spike will be apparent in the graphic no matter where it takes place. Perhaps at the beginning or the end it might seem like there is a dramatic change that is occurring though.
+
+3.8: Recall your retail time series data (from Exercise 7 in Section 2.10). Decompose the series using X-11. Does it reveal any outliers, or unusual features that you had not noticed previously?
+
+```{r}
+x11_dcmp <- us_employment |> filter(Title=='Total Private') |>
+  model(x11 = X_13ARIMA_SEATS(Employed ~ x11())) |>
+  components()
+autoplot(x11_dcmp) +
+  labs(title =
+    "Decomposition of total US retail employment using X-11.")
+```
+
+
+```{r}
+us_retail_employment <- us_employment |> filter(year(Month) >= 1990, Title == "Retail Trade") |> dplyr::select(-Series_ID)
+
+x11_dcmp <- us_retail_employment |>
+  model(x11 = X_13ARIMA_SEATS(Employed ~ x11())) |>
+  components()
+autoplot(x11_dcmp) +
+  labs(title =
+         "Decomposition of total US retail employment using X-11.")
+```
+
+
+```{r}
+#aus_retail |>
+ # filter(`Series ID` == sample(aus_retail$`Series ID`,1)) |> 
+ #   model(x11())
+
+x11_dcmp <- aus_retail |>
+  filter(`Series ID` == sample(aus_retail$`Series ID`,1)) |>
+  model(x11 = X_13ARIMA_SEATS(Turnover ~ x11())) |>
+  components()
+
+autoplot(x11_dcmp) +
+  labs(title = "Decomposition of turnover using X-11.")
+```
+
+
+3.9: Figures 3.19 and 3.20 show the result of decomposing the number of persons in the civilian labour force in Australia each month from February 1978 to August 1995.
+
+a. Write about 3–5 sentences describing the results of the decomposition. Pay particular attention to the scales of the graphs in making your interpretation.
+
+The overall trend/cyclic behavior of the graph is upward and increasing across time although in the early 1990s the slope/percentage increase is definitely diminishing. It's clear from the remainder component of the decomposition that a substantial event occurred that lead to many Australians losing their jobs and took some time for the economy to recover. The scale in the error component is also interesting in that this one massive dropoff has caused the total scale to be larger than the seasonal plot. It is rather interesting that for the monthly seasonal data that specific months have dramatic decreases that are not consistent across all of the months of the year. Perhaps a seasonal tourism decline occurred that may have prompted such specific job losses rather than during all of seasons in the early 1990s. 
+
+b. Is the recession of 1991/1992 visible in the estimated components?
+
+The error/remainder component is far higher in 1991/1992 than anywhere else on the decomposition faceted graphs and is clearly not accounted for well by this model. The data points are driving the scale higher in the error plot whereas many of the rest of the graph is no where as large. Despite the general trend in the original time series plot that point in time represents the clearest drop in employed Australians.
